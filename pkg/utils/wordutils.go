@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -46,6 +47,14 @@ func LoadValidWords(filePath string) (map[string]bool, error) {
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
-	fmt.Println("Total word count: ", totalWordCount)
+	fmt.Println("Total words in the Word Bank: ", totalWordCount)
 	return validWordsMap, nil
+}
+
+func NormalizeWord(word string) string {
+	word = strings.ToLower(word)        // convert to LowerCase
+	re := regexp.MustCompile("[^a-z]+") // remove any non-alphabetic characters
+	word = re.ReplaceAllString(word, "")
+
+	return word
 }
