@@ -2,20 +2,29 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
+	"runtime"
+	"sync"
 	"time"
 	"web-crawler/internal/datafetcher"
 	"web-crawler/pkg/utils"
 )
 
 func main() {
-	wordFilePath := "words.txt"
-	urlFilePath := "urls.txt"
+	maxProcs := runtime.GOMAXPROCS(0)
+	fmt.Printf("Current GOMAXPROCS value: %d\n", maxProcs)
+
+	wordFilePath := flag.String("wordFile", "words.txt", "Path to the file containing the valid words")
+	urlFilePath := flag.String("urlFile", "urls.txt", "Path to the file containing the URLs to be crawled")
 
 	start := time.Now()
+	var wg sync.WaitGroup
+	wordCountMap := make(map[string]int)
+	mu := sync.Mutex{}
 
 	// load the list of valid words from the word bank
-	validWords, err := utils.LoadValidWords(wordFilePath)
+	validWords, err := utils.LoadValidWords(*wordFilePath)
 
 	if err != nil {
 		fmt.Println("Error loading valid words:", err)
@@ -24,30 +33,42 @@ func main() {
 
 	fmt.Println("Number of Valid words loaded: ", len(validWords))
 
-	urls, err := datafetcher.ReadURLs(urlFilePath)
+	urls, err := datafetcher.ReadURLs(*urlFilePath)
 
 	if err != nil {
 		fmt.Println("Error parsingh the list of URLs:", err)
 		return
 	}
 
-	wordCountMap := make(map[string]int)
 	for _, url := range urls {
-		htmlToString, err := datafetcher.FetchHtmlContent(url)
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+			htmlToString, err := datafetcher.FetchHtmlContent(url)
 
-		if err != nil {
-			fmt.Println("Error fetch content for the page: %s", url)
-		}
+			if err != nil {
+				fmt.Println("Error fetching content for the page: ", url)
+				return
+			}
 
-		wordCountMap = datafetcher.CountValidWords(htmlToString, validWords)
+			measuredCounts := datafetcher.CountValidWords(htmlToString, validWords)
+
+			mu.Lock()
+			for word, count := range measuredCounts {
+				wordCountMap[word] += count
+			}
+			mu.Unlock()
+		}(url)
+
 	}
-
+	wg.Wait()
 	topTen := datafetcher.TopTenWords(wordCountMap)
 
 	// Convert the map to a JSON object
 	jsonData, err := json.MarshalIndent(topTen, "", "  ")
 	if err != nil {
 		fmt.Println("failed to convert the response to json", err)
+		return
 	}
 	fmt.Println("The top 10 words and their counts are as follows: ")
 	fmt.Println(string(jsonData))
